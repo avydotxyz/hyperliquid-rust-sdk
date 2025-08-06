@@ -1,5 +1,6 @@
 #![deny(unreachable_pub)]
 mod consts;
+mod eip712;
 mod errors;
 mod exchange;
 mod helpers;

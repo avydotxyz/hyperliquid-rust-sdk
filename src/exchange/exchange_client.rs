@@ -1,12 +1,23 @@
+use std::collections::HashMap;
+
+use alloy::{
+    primitives::{keccak256, Address, Signature, B256},
+    signers::local::PrivateKeySigner,
+};
+use log::debug;
+use reqwest::Client;
+use serde::{ser::SerializeStruct, Deserialize, Serialize, Serializer};
+
 use crate::{
     exchange::{
         actions::{
-            ApproveAgent, ApproveBuilderFee, BulkCancel, BulkModify, BulkOrder, SetReferrer,
-            UpdateIsolatedMargin, UpdateLeverage, UsdSend,
+            ApproveAgent, ApproveBuilderFee, BulkCancel, BulkModify, BulkOrder, EvmUserModify,
+            ScheduleCancel, SetReferrer, UpdateIsolatedMargin, UpdateLeverage, UsdSend,
         },
-        cancel::{CancelRequest, CancelRequestCloid},
+        cancel::{CancelRequest, CancelRequestCloid, ClientCancelRequestCloid},
         modify::{ClientModifyRequest, ModifyRequest},
-        ClientCancelRequest, ClientOrderRequest,
+        order::{MarketCloseParams, MarketOrderParams},
+        BuilderInfo, ClientCancelRequest, ClientLimit, ClientOrder, ClientOrderRequest,
     },
     helpers::{next_nonce, uuid_to_hex_string},
     prelude::*,
@@ -14,8 +25,6 @@ use crate::{
     BulkCancelCloid, Error, SendAsset,
 };
 use crate::{ClassTransfer, SpotSend, VaultTransfer, Withdraw3};
-use ethers::types::{H160, H256};
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{cancel::ClientCancelRequestCloid, dtos::MessageResponse};
@@ -56,20 +65,22 @@ pub enum Actions {
     ApproveBuilderFee(ApproveBuilderFee),
     SendAsset(SendAsset),
     UsdClassTransfer(ClassTransfer),
+    EvmUserModify(EvmUserModify),
+    ScheduleCancel(ScheduleCancel),
 }
 
 impl Actions {
-    fn hash(&self, timestamp: u64, vault_address: Option<H160>) -> Result<H256> {
+    fn hash(&self, timestamp: u64, vault_address: Option<Address>) -> Result<B256> {
         let mut bytes =
             rmp_serde::to_vec_named(self).map_err(|e| Error::RmpParse(e.to_string()))?;
         bytes.extend(timestamp.to_be_bytes());
         if let Some(vault_address) = vault_address {
             bytes.push(1);
-            bytes.extend(vault_address.to_fixed_bytes());
+            bytes.extend(vault_address);
         } else {
             bytes.push(0);
         }
-        Ok(H256(ethers::utils::keccak256(bytes)))
+        Ok(keccak256(bytes))
     }
 }
 
@@ -80,7 +91,7 @@ impl HashGenerator {
         let timestamp = next_nonce();
 
         let usd_send = UsdSend {
-            signature_chain_id: 421614.into(),
+            signature_chain_id: 421614,
             hyperliquid_chain: HYPERLIQUID_CHAIN.to_string(),
             destination: destination.to_string(),
             amount: amount.to_string(),
@@ -111,6 +122,28 @@ impl HashGenerator {
 
         Ok(MessageResponse {
             action: Actions::ApproveBuilderFee(action),
+            message,
+            nonce: timestamp,
+        })
+    }
+
+    pub async fn class_transfer(usdc: f64, to_perp: bool) -> Result<MessageResponse> {
+        // payload expects usdc without decimals
+        let usdc = (usdc * 1e6).round() as u64;
+        let timestamp = next_nonce();
+        let action = SpotUser {
+            class_transfer: ClassTransfer {
+                usdc,
+                to_perp,
+            },
+        };
+
+        let message = action
+            .eip712_signing_hash()
+            .map_err(|e| Error::JsonParse(e.to_string()))?;
+
+        Ok(MessageResponse {
+            action: Actions::SpotUser(action),
             message,
             nonce: timestamp,
         })
@@ -403,6 +436,8 @@ pub async fn send_asset(
 
 #[cfg(test)]
 mod tests {
+
+    use alloy::primitives::address;
 
     use super::*;
     use crate::{
