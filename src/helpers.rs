@@ -1,8 +1,8 @@
-use crate::consts::*;
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use chrono::prelude::Utc;
 use lazy_static::lazy_static;
 use log::info;
-use std::sync::atomic::{AtomicU64, Ordering};
 use uuid::Uuid;
 
 use crate::consts::*;
@@ -50,7 +50,7 @@ pub(crate) fn uuid_to_hex_string(uuid: Uuid) -> String {
         .map(|byte| format!("{byte:02x}"))
         .collect::<Vec<String>>()
         .join("");
-    format!("0x{}", hex_string)
+    format!("0x{hex_string}")
 }
 
 pub fn truncate_float(float: f64, decimals: u32, round_up: bool) -> f64 {
@@ -75,6 +75,16 @@ pub enum BaseUrl {
     Localhost,
     Testnet,
     Mainnet,
+}
+
+impl BaseUrl {
+    pub(crate) fn get_url(&self) -> String {
+        match self {
+            BaseUrl::Localhost => LOCAL_API_URL.to_string(),
+            BaseUrl::Mainnet => MAINNET_API_URL.to_string(),
+            BaseUrl::Testnet => TESTNET_API_URL.to_string(),
+        }
+    }
 }
 
 lazy_static! {

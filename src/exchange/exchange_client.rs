@@ -1,14 +1,9 @@
-use std::collections::HashMap;
+use alloy::primitives::{keccak256, Address, B256};
 
-use alloy::{
-    primitives::{keccak256, Address, Signature, B256},
-    signers::local::PrivateKeySigner,
-};
-use log::debug;
-use reqwest::Client;
-use serde::{ser::SerializeStruct, Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
 use crate::{
+    eip712::Eip712,
     exchange::{
         actions::{
             ApproveAgent, ApproveBuilderFee, BulkCancel, BulkModify, BulkOrder, EvmUserModify,
@@ -16,7 +11,7 @@ use crate::{
         },
         cancel::{CancelRequest, CancelRequestCloid, ClientCancelRequestCloid},
         modify::{ClientModifyRequest, ModifyRequest},
-        order::{MarketCloseParams, MarketOrderParams},
+        order::MarketOrderParams,
         BuilderInfo, ClientCancelRequest, ClientLimit, ClientOrder, ClientOrderRequest,
     },
     helpers::{next_nonce, uuid_to_hex_string},
@@ -27,12 +22,7 @@ use crate::{
 use crate::{ClassTransfer, SpotSend, VaultTransfer, Withdraw3};
 use serde_json::Value;
 
-use super::{cancel::ClientCancelRequestCloid, dtos::MessageResponse};
-use super::{
-    dtos::SpotTransferRequest,
-    order::{MarketOrderParams, SetTpSlParams},
-};
-use super::{BuilderInfo, ClientLimit, ClientOrder};
+use super::{dtos::MessageResponse, dtos::SpotTransferRequest};
 
 #[cfg(not(feature = "testnet"))]
 const HYPERLIQUID_CHAIN: &str = "Mainnet";
@@ -41,10 +31,10 @@ const HYPERLIQUID_CHAIN: &str = "Mainnet";
 const HYPERLIQUID_CHAIN: &str = "Testnet";
 
 #[cfg(not(feature = "testnet"))]
-const SIGNATURE_CHAIN_ID: i64 = 999;
+const SIGNATURE_CHAIN_ID: u64 = 999;
 
 #[cfg(feature = "testnet")]
-const SIGNATURE_CHAIN_ID: i64 = 998;
+const SIGNATURE_CHAIN_ID: u64 = 998;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
@@ -85,11 +75,9 @@ impl Actions {
 }
 
 pub struct HashGenerator {}
-
 impl HashGenerator {
-    pub async fn usdc_transfer(amount: &str, destination: &str) -> Result<Value> {
+    pub async fn usd_send(destination: String, amount: String) -> Result<Value> {
         let timestamp = next_nonce();
-
         let usd_send = UsdSend {
             signature_chain_id: 421614,
             hyperliquid_chain: HYPERLIQUID_CHAIN.to_string(),
@@ -97,6 +85,7 @@ impl HashGenerator {
             amount: amount.to_string(),
             time: timestamp,
         };
+
         let action = serde_json::to_value(Actions::UsdSend(usd_send))
             .map_err(|e| Error::JsonParse(e.to_string()))?;
 
@@ -104,7 +93,7 @@ impl HashGenerator {
     }
 
     pub async fn approve_builder_fee(
-        builder: String,
+        builder: Address,
         max_fee_rate: String,
     ) -> Result<MessageResponse> {
         let timestamp = next_nonce();
@@ -112,13 +101,11 @@ impl HashGenerator {
             builder,
             max_fee_rate,
             nonce: timestamp,
-            signature_chain_id: SIGNATURE_CHAIN_ID.into(),
+            signature_chain_id: SIGNATURE_CHAIN_ID,
             hyperliquid_chain: HYPERLIQUID_CHAIN.to_string(),
         };
 
-        let message = action
-            .eip712_signing_hash()
-            .map_err(|e| Error::JsonParse(e.to_string()))?;
+        let message = action.eip712_signing_hash();
 
         Ok(MessageResponse {
             action: Actions::ApproveBuilderFee(action),
@@ -131,25 +118,23 @@ impl HashGenerator {
         // payload expects usdc without decimals
         let usdc = (usdc * 1e6).round() as u64;
         let timestamp = next_nonce();
-        let action = SpotUser {
-            class_transfer: ClassTransfer {
-                usdc,
-                to_perp,
-            },
+        let action = ClassTransfer {
+            usdc,
+            to_perp,
+            signature_chain_id: SIGNATURE_CHAIN_ID,
+            hyperliquid_chain: HYPERLIQUID_CHAIN.to_string(),
         };
 
-        let message = action
-            .eip712_signing_hash()
-            .map_err(|e| Error::JsonParse(e.to_string()))?;
+        let message = action.eip712_signing_hash();
 
         Ok(MessageResponse {
-            action: Actions::SpotUser(action),
+            action: Actions::UsdClassTransfer(action),
             message,
             nonce: timestamp,
         })
     }
 
-pub async fn send_asset(
+    pub async fn send_asset(
         token: String,
         source_dex: String,
         destination_dex: String,
@@ -169,55 +154,13 @@ pub async fn send_asset(
             hyperliquid_chain: HYPERLIQUID_CHAIN.to_string(),
             signature_chain_id: SIGNATURE_CHAIN_ID.into(),
         };
-        let message = perp_dex_class_transfer
-            .eip712_signing_hash()
-            .map_err(|e| Error::JsonParse(e.to_string()))?;
+        let message = perp_dex_class_transfer.eip712_signing_hash();
 
         Ok(MessageResponse {
             action: Actions::SendAsset(perp_dex_class_transfer),
             message,
             nonce: timestamp,
         })
-    }
-
-    pub async fn class_transfer(amount: String, to_perp: bool) -> Result<MessageResponse> {
-        let timestamp = next_nonce();
-
-        let class_transfer = ClassTransfer {
-            amount,
-            to_perp,
-            nonce: timestamp,
-            hyperliquid_chain: HYPERLIQUID_CHAIN.to_string(),
-            signature_chain_id: SIGNATURE_CHAIN_ID.into(),
-        };
-
-        // Use EIP-712 signing directly (not L1 action hashing)
-        let message = class_transfer
-            .eip712_signing_hash()
-            .map_err(|e| Error::JsonParse(e.to_string()))?;
-
-        Ok(MessageResponse {
-            action: Actions::UsdClassTransfer(class_transfer),
-            message,
-            nonce: timestamp,
-        })
-    }
-
-    pub async fn vault_transfer(
-        is_deposit: bool,
-        usd: u64,
-        vault_address: Option<H160>,
-    ) -> Result<Value> {
-        let vault_address = vault_address.ok_or(Error::VaultAddressNotFound)?;
-
-        let action = Actions::VaultTransfer(VaultTransfer {
-            vault_address,
-            is_deposit,
-            usd,
-        });
-        let action = serde_json::to_value(&action).map_err(|e| Error::JsonParse(e.to_string()))?;
-
-        Ok(action)
     }
 
     pub async fn market_open(params: MarketOrderParams) -> Result<MessageResponse> {
@@ -233,47 +176,17 @@ pub async fn send_asset(
             }),
         };
 
-        Self::get_message_for_order(vec![order])
-    }
-
-    pub async fn limit_open(params: MarketOrderParams) -> Result<MessageResponse> {
-        let order = ClientOrderRequest {
-            asset: params.asset,
-            is_buy: params.is_buy,
-            reduce_only: params.reduce_only,
-            limit_px: params.px.parse::<f64>().unwrap(),
-            sz: params.sz.parse::<f64>().unwrap(),
-            cloid: params.cloid,
-            order_type: ClientOrder::Limit(ClientLimit {
-                tif: "Gtc".to_string(),
-            }),
-        };
-
-        Self::get_message_for_order(vec![order])
-    }
-
-    pub async fn set_tp_sl(params: SetTpSlParams) -> Result<MessageResponse> {
-        let order = ClientOrderRequest {
-            asset: params.asset,
-            is_buy: params.is_buy,
-            reduce_only: params.reduce_only,
-            limit_px: params.px.parse::<f64>().unwrap(),
-            sz: params.sz.parse::<f64>().unwrap(),
-            cloid: params.cloid,
-            order_type: params.order_type,
-        };
-
-        Self::get_message_for_order(vec![order])
+        Self::get_message_for_order(vec![order], None)
     }
 
     pub async fn market_open_with_builder(
         params: MarketOrderParams,
         builder: BuilderInfo,
-    ) -> Result<Value> {
+    ) -> Result<MessageResponse> {
         let order = ClientOrderRequest {
             asset: params.asset,
             is_buy: params.is_buy,
-            reduce_only: false,
+            reduce_only: params.reduce_only,
             limit_px: params.px.parse::<f64>().unwrap(),
             sz: params.sz.parse::<f64>().unwrap(),
             cloid: params.cloid,
@@ -282,47 +195,34 @@ pub async fn send_asset(
             }),
         };
 
-        let value = Self::bulk_order_with_builder(vec![order], builder)?;
-        Ok(value)
+        Self::order_with_builder(order, builder).await
     }
-
-    pub fn get_message_for_order(orders: Vec<ClientOrderRequest>) -> Result<MessageResponse> {
-        let mut transformed_orders = Vec::new();
-
-        for order in orders {
-            transformed_orders.push(order.convert()?);
-        }
-
-        let bulk_order = BulkOrder {
-            orders: transformed_orders,
-            grouping: "na".to_string(),
-            builder: None,
-        };
-        let action = Actions::Order(bulk_order.clone());
-
-        Self::get_message_for_action(action, None)
+    pub async fn order_with_builder(
+        order: ClientOrderRequest,
+        builder: BuilderInfo,
+    ) -> Result<MessageResponse> {
+        Self::bulk_order_with_builder(vec![order], builder).await
     }
-
-    pub fn bulk_order_with_builder(
+    pub async fn bulk_order_with_builder(
         orders: Vec<ClientOrderRequest>,
         mut builder: BuilderInfo,
-    ) -> Result<Value> {
+    ) -> Result<MessageResponse> {
+        let timestamp = next_nonce();
+
+        builder.builder = builder.builder.to_lowercase();
+
         let mut transformed_orders = Vec::new();
 
         for order in orders {
             transformed_orders.push(order.convert()?);
         }
-
-        builder.builder = builder.builder.to_lowercase();
 
         let action = Actions::Order(BulkOrder {
             orders: transformed_orders,
             grouping: "na".to_string(),
             builder: Some(builder),
         });
-        let action = serde_json::to_value(&action).map_err(|e| Error::JsonParse(e.to_string()))?;
-
-        Ok(action)
+        Self::get_message_for_action(action, Some(timestamp))
     }
 
     pub async fn cancel_order(cancel: ClientCancelRequest) -> Result<MessageResponse> {
@@ -358,7 +258,9 @@ pub async fn send_asset(
         Ok(action)
     }
 
-    pub async fn bulk_cancel_by_cloid(cancels: Vec<ClientCancelRequestCloid>) -> Result<Value> {
+    pub async fn bulk_cancel_by_cloid(
+        cancels: Vec<ClientCancelRequestCloid>,
+    ) -> Result<MessageResponse> {
         let mut transformed_cancels: Vec<CancelRequestCloid> = Vec::new();
         for cancel in cancels.into_iter() {
             transformed_cancels.push(CancelRequestCloid {
@@ -371,9 +273,7 @@ pub async fn send_asset(
             cancels: transformed_cancels,
         });
 
-        let action = serde_json::to_value(&action).map_err(|e| Error::JsonParse(e.to_string()))?;
-
-        Ok(action)
+        Self::get_message_for_action(action, None)
     }
 
     pub async fn update_leverage(request: UpdateLeverage) -> Result<MessageResponse> {
@@ -399,7 +299,6 @@ pub async fn send_asset(
             token: token.to_string(),
         };
         let action = Actions::SpotSend(spot_send);
-
         Self::get_message_for_action(action, Some(timestamp))
     }
 
@@ -421,10 +320,31 @@ pub async fn send_asset(
 
         Ok(action)
     }
+
+    pub fn get_message_for_order(
+        orders: Vec<ClientOrderRequest>,
+        builder: Option<BuilderInfo>,
+    ) -> Result<MessageResponse> {
+        let mut transformed_orders = Vec::new();
+
+        for order in orders {
+            transformed_orders.push(order.convert()?);
+        }
+
+        let bulk_order = BulkOrder {
+            orders: transformed_orders,
+            grouping: "na".to_string(),
+            builder,
+        };
+        let action = Actions::Order(bulk_order.clone());
+
+        Self::get_message_for_action(action, None)
+    }
+
     pub fn get_message_for_action(action: Actions, nonce: Option<u64>) -> Result<MessageResponse> {
         let nonce = nonce.unwrap_or(next_nonce());
         let connection_id = action.hash(nonce, None)?;
-        let message: H256 = encode_l1_action(connection_id)?;
+        let message: B256 = encode_l1_action(connection_id)?;
 
         Ok(MessageResponse {
             action,
@@ -437,8 +357,6 @@ pub async fn send_asset(
 #[cfg(test)]
 mod tests {
 
-    use alloy::primitives::address;
-
     use super::*;
     use crate::{
         exchange::order::{Limit, OrderRequest},
@@ -449,24 +367,22 @@ mod tests {
     fn test_limit_order_action_hashing() -> Result<()> {
         let action = Actions::Order(BulkOrder {
             orders: vec![OrderRequest {
-                asset: 3,
+                asset: 1,
                 is_buy: true,
-                limit_px: "80000".to_string(),
-                sz: "0.01".to_string(),
+                limit_px: "2000.0".to_string(),
+                sz: "3.5".to_string(),
                 reduce_only: false,
                 order_type: Order::Limit(Limit {
-                    tif: "Gtc".to_string(),
+                    tif: "Ioc".to_string(),
                 }),
                 cloid: None,
             }],
             grouping: "na".to_string(),
             builder: None,
         });
-        let connection_id = action.hash(1745418656072, None)?;
-        println!("connection_id: {}", connection_id);
-        let message: H256 = encode_l1_action(connection_id)?;
+        let connection_id = action.hash(1583838, None)?;
 
-        println!("message: {:?}", message);
+        println!("connection_id: {:?}", connection_id);
 
         Ok(())
     }

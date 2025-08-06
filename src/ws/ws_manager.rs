@@ -26,13 +26,16 @@ use tokio_tungstenite::{
 };
 
 use crate::{
+    message_types::{
+        ActiveAssetCtx, Notification, UserFills, UserFundings, UserNonFundingLedgerUpdates,
+        WebData2,
+    },
     prelude::*,
     ws::message_types::{
         ActiveAssetData, ActiveSpotAssetCtx, AllMids, Bbo, Candle, L2Book, OrderUpdates, Trades,
         User,
     },
-    ActiveAssetCtx, Error, Notification, UserFills, UserFundings, UserNonFundingLedgerUpdates,
-    WebData2,
+    Error,
 };
 
 #[derive(Debug)]
@@ -42,12 +45,12 @@ struct SubscriptionData {
     id: String,
 }
 #[derive(Debug)]
-pub struct WsManager {
+pub(crate) struct WsManager {
     stop_flag: Arc<AtomicBool>,
     writer: Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, protocol::Message>>>,
     subscriptions: Arc<Mutex<HashMap<String, Vec<SubscriptionData>>>>,
-    subscription_id: Arc<Mutex<u32>>,
-    subscription_identifiers: Arc<Mutex<HashMap<u32, String>>>,
+    subscription_id: u32,
+    subscription_identifiers: HashMap<u32, String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -96,22 +99,20 @@ pub enum Message {
 }
 
 #[derive(Serialize)]
-pub struct SubscriptionSendData<'a> {
+pub(crate) struct SubscriptionSendData<'a> {
     method: &'static str,
     subscription: &'a serde_json::Value,
 }
 
 #[derive(Serialize)]
-pub struct Ping {
+pub(crate) struct Ping {
     method: &'static str,
 }
 
 impl WsManager {
     const SEND_PING_INTERVAL: u64 = 50;
-    const INITIAL_BACKOFF_SECS: u64 = 1;
-    const MAX_BACKOFF_SECS: u64 = 60;
 
-    pub async fn new(url: String, reconnect: bool) -> Result<WsManager> {
+    pub(crate) async fn new(url: String, reconnect: bool) -> Result<WsManager> {
         let stop_flag = Arc::new(AtomicBool::new(false));
 
         let (writer, mut reader) = Self::connect(&url).await?.split();
@@ -125,13 +126,8 @@ impl WsManager {
             let writer = writer.clone();
             let stop_flag = Arc::clone(&stop_flag);
             let reader_fut = async move {
-                let mut backoff_delay = Self::INITIAL_BACKOFF_SECS;
-
                 while !stop_flag.load(Ordering::Relaxed) {
                     if let Some(data) = reader.next().await {
-                        // Reset backoff on successful message
-                        backoff_delay = Self::INITIAL_BACKOFF_SECS;
-
                         if let Err(err) =
                             WsManager::parse_and_send_data(data, &subscriptions_copy).await
                         {
@@ -148,19 +144,11 @@ impl WsManager {
                             warn!("Error sending disconnection notification err={err}");
                         }
                         if reconnect {
-                            // Exponential backoff with jitter
-                            info!(
-                                "WsManager sleeping for {}s before reconnect attempt",
-                                backoff_delay
-                            );
-                            tokio::time::sleep(Duration::from_secs(backoff_delay)).await;
-
+                            // Always sleep for 1 second before attempting to reconnect so it does not spin during reconnecting. This could be enhanced with exponential backoff.
+                            tokio::time::sleep(Duration::from_secs(1)).await;
                             info!("WsManager attempting to reconnect");
                             match Self::connect(&url).await {
                                 Ok(ws) => {
-                                    // Reset backoff on successful reconnection
-                                    backoff_delay = Self::INITIAL_BACKOFF_SECS;
-
                                     let (new_writer, new_reader) = ws.split();
                                     reader = new_reader;
                                     let mut writer_guard = writer.lock().await;
@@ -191,11 +179,7 @@ impl WsManager {
                                     }
                                     info!("WsManager reconnect finished");
                                 }
-                                Err(err) => {
-                                    error!("Could not connect to websocket {err}");
-                                    // Double the backoff delay for next attempt, with max cap
-                                    backoff_delay = (backoff_delay * 2).min(Self::MAX_BACKOFF_SECS);
-                                }
+                                Err(err) => error!("Could not connect to websocket {err}"),
                             }
                         } else {
                             error!("WsManager reconnection disabled. Will not reconnect and exiting reader task.");
@@ -235,8 +219,8 @@ impl WsManager {
             stop_flag,
             writer,
             subscriptions,
-            subscription_id: Arc::new(Mutex::new(0)),
-            subscription_identifiers: Arc::new(Mutex::new(HashMap::new())),
+            subscription_id: 0,
+            subscription_identifiers: HashMap::new(),
         })
     }
 
@@ -425,8 +409,8 @@ impl WsManager {
         Self::send_subscription_data("unsubscribe", writer, identifier).await
     }
 
-    pub async fn add_subscription(
-        &self,
+    pub(crate) async fn add_subscription(
+        &mut self,
         identifier: String,
         sending_channel: UnboundedSender<Message>,
     ) -> Result<u32> {
@@ -457,14 +441,8 @@ impl WsManager {
             Self::subscribe(self.writer.lock().await.borrow_mut(), identifier.as_str()).await?;
         }
 
-        let mut subscription_id_guard = self.subscription_id.lock().await;
-        let subscription_id = *subscription_id_guard;
-        *subscription_id_guard += 1;
-        drop(subscription_id_guard);
-
+        let subscription_id = self.subscription_id;
         self.subscription_identifiers
-            .lock()
-            .await
             .insert(subscription_id, identifier.clone());
         subscriptions.push(SubscriptionData {
             sending_channel,
@@ -472,14 +450,13 @@ impl WsManager {
             id: identifier,
         });
 
+        self.subscription_id += 1;
         Ok(subscription_id)
     }
 
-    pub async fn remove_subscription(&self, subscription_id: u32) -> Result<()> {
+    pub(crate) async fn remove_subscription(&mut self, subscription_id: u32) -> Result<()> {
         let identifier = self
             .subscription_identifiers
-            .lock()
-            .await
             .get(&subscription_id)
             .ok_or(Error::SubscriptionNotFound)?
             .clone();
@@ -498,10 +475,7 @@ impl WsManager {
             identifier.clone()
         };
 
-        self.subscription_identifiers
-            .lock()
-            .await
-            .remove(&subscription_id);
+        self.subscription_identifiers.remove(&subscription_id);
 
         let mut subscriptions = self.subscriptions.lock().await;
 
@@ -518,53 +492,6 @@ impl WsManager {
             Self::unsubscribe(self.writer.lock().await.borrow_mut(), identifier.as_str()).await?;
         }
         Ok(())
-    }
-
-    /// Shutdown the WebSocket manager and unsubscribe from all active subscriptions
-    pub async fn shutdown(&self) -> Result<()> {
-        log::info!("Shutting down WebSocket manager...");
-
-        // Set stop flag to stop background tasks
-        self.stop_flag.store(true, Ordering::Relaxed);
-
-        // Get all subscription identifiers
-        let subscription_ids: Vec<u32> = {
-            let identifiers = self.subscription_identifiers.lock().await;
-            identifiers.keys().cloned().collect()
-        };
-
-        // Unsubscribe from all active subscriptions
-        for subscription_id in subscription_ids {
-            if let Err(err) = self.remove_subscription(subscription_id).await {
-                log::warn!("Failed to remove subscription {}: {}", subscription_id, err);
-            }
-        }
-
-        // Clear all subscriptions
-        {
-            let mut subscriptions = self.subscriptions.lock().await;
-            subscriptions.clear();
-        }
-
-        // Clear subscription identifiers
-        {
-            let mut identifiers = self.subscription_identifiers.lock().await;
-            identifiers.clear();
-        }
-
-        log::info!("WebSocket manager shutdown complete");
-        Ok(())
-    }
-
-    /// Get the number of active subscriptions
-    pub async fn get_subscription_count(&self) -> usize {
-        let identifiers = self.subscription_identifiers.lock().await;
-        identifiers.len()
-    }
-
-    /// Check if the WebSocket manager is running
-    pub fn is_running(&self) -> bool {
-        !self.stop_flag.load(Ordering::Relaxed)
     }
 }
 
