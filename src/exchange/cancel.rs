@@ -8,7 +8,7 @@ pub struct ClientCancelRequest {
     pub oid: u64,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
 pub struct CancelRequest {
     #[serde(rename = "a", alias = "asset")]
     pub asset: u32,
@@ -16,13 +16,13 @@ pub struct CancelRequest {
     pub oid: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, ToSchema)]
 pub struct ClientCancelRequestCloid {
     pub asset: u32,
     pub cloid: Uuid,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
 pub struct CancelRequestCloid {
     pub asset: u32,
     pub cloid: String,
