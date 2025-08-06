@@ -15,6 +15,7 @@ use crate::{
         BuilderInfo, ClientCancelRequest, ClientLimit, ClientOrder, ClientOrderRequest,
     },
     helpers::{next_nonce, uuid_to_hex_string},
+    order::SetTpSlParams,
     prelude::*,
     signature::create_signature::encode_l1_action,
     BulkCancelCloid, Error, SendAsset,
@@ -93,9 +94,10 @@ impl HashGenerator {
     }
 
     pub async fn approve_builder_fee(
-        builder: Address,
+        builder: String,
         max_fee_rate: String,
     ) -> Result<MessageResponse> {
+        let builder = builder.to_lowercase().parse::<Address>().unwrap();
         let timestamp = next_nonce();
         let action = ApproveBuilderFee {
             builder,
@@ -163,6 +165,20 @@ impl HashGenerator {
         })
     }
 
+    pub async fn set_tp_sl(params: SetTpSlParams) -> Result<MessageResponse> {
+        let order = ClientOrderRequest {
+            asset: params.asset,
+            is_buy: params.is_buy,
+            reduce_only: params.reduce_only,
+            limit_px: params.px.parse::<f64>().unwrap(),
+            sz: params.sz.parse::<f64>().unwrap(),
+            cloid: params.cloid,
+            order_type: params.order_type,
+        };
+
+        Self::get_message_for_order(vec![order], None)
+    }
+
     pub async fn market_open(params: MarketOrderParams) -> Result<MessageResponse> {
         let order = ClientOrderRequest {
             asset: params.asset,
@@ -178,7 +194,21 @@ impl HashGenerator {
 
         Self::get_message_for_order(vec![order], None)
     }
+    pub async fn limit_open(params: MarketOrderParams) -> Result<MessageResponse> {
+        let order = ClientOrderRequest {
+            asset: params.asset,
+            is_buy: params.is_buy,
+            reduce_only: params.reduce_only,
+            limit_px: params.px.parse::<f64>().unwrap(),
+            sz: params.sz.parse::<f64>().unwrap(),
+            cloid: params.cloid,
+            order_type: ClientOrder::Limit(ClientLimit {
+                tif: "Gtc".to_string(),
+            }),
+        };
 
+        Self::get_message_for_order(vec![order], None)
+    }
     pub async fn market_open_with_builder(
         params: MarketOrderParams,
         builder: BuilderInfo,
