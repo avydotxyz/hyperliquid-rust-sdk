@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use super::{order::OrderRequest, ClientOrderRequest};
+use super::order::{ClientOrderRequest, OrderRequest};
 
 #[derive(Debug, ToSchema)]
 pub struct ClientModifyRequest {

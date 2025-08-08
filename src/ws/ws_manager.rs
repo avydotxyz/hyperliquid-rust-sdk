@@ -26,16 +26,9 @@ use tokio_tungstenite::{
 };
 
 use crate::{
-    message_types::{
-        ActiveAssetCtx, Notification, UserFills, UserFundings, UserNonFundingLedgerUpdates,
-        WebData2,
-    },
-    prelude::*,
-    ws::message_types::{
-        ActiveAssetData, ActiveSpotAssetCtx, AllMids, Bbo, Candle, L2Book, OrderUpdates, Trades,
-        User,
-    },
-    Error,
+    errors::Error, prelude::*, ws::{
+        ActiveAssetCtx, ActiveAssetData, ActiveSpotAssetCtx, AllMids, Bbo, Candle, L2Book, Notification, OrderUpdates, Trades, User, UserFills, UserFundings, UserNonFundingLedgerUpdates, WebData2
+    }
 };
 
 #[derive(Debug)]

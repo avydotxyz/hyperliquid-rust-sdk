@@ -1,8 +1,7 @@
 use serde::Deserialize;
 
 use crate::{
-    info::{AssetPosition, Level, MarginSummary},
-    DailyUserVlm, Delta, FeeSchedule, OrderInfo, Referrer, ReferrerState, UserTokenBalance,
+    info::{AssetPosition, DailyUserVlm, Delta, FeeSchedule, Level, MarginSummary, OrderInfo, Referrer, ReferrerState, UserTokenBalance},
 };
 
 #[derive(Deserialize, Debug)]

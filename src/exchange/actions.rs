@@ -6,11 +6,13 @@ use alloy::{
 use serde::{Deserialize, Serialize, Serializer};
 use utoipa::ToSchema;
 
-use super::{cancel::CancelRequestCloid, BuilderInfo};
+use super::{cancel::CancelRequestCloid, builder::BuilderInfo};
 use crate::{
     eip712::Eip712,
     exchange::{cancel::CancelRequest, modify::ModifyRequest, order::OrderRequest},
 };
+
+
 
 fn eip_712_domain(chain_id: u64) -> Eip712Domain {
     eip712_domain! {

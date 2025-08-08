@@ -1,7 +1,8 @@
 use alloy::primitives::B256;
 use serde::{Deserialize, Serialize};
 
-use super::Actions;
+use crate::exchange::hash_generator::Actions;
+
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MessageResponse {

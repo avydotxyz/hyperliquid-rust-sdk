@@ -1,7 +1,7 @@
 use reqwest::{Client, Response};
 use serde::Deserialize;
 
-use crate::{helpers::BaseUrl, prelude::*, Error};
+use crate::{helpers::BaseUrl, prelude::*, errors::Error};
 
 #[derive(Deserialize, Debug)]
 struct ErrorData {

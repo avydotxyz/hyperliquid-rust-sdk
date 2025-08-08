@@ -4,23 +4,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     eip712::Eip712,
+    errors::Error,
     exchange::{
-        actions::{
-            ApproveAgent, ApproveBuilderFee, BulkCancel, BulkModify, BulkOrder, EvmUserModify,
-            ScheduleCancel, SetReferrer, UpdateIsolatedMargin, UpdateLeverage, UsdSend,
-        },
-        cancel::{CancelRequest, CancelRequestCloid, ClientCancelRequestCloid},
-        modify::{ClientModifyRequest, ModifyRequest},
-        order::MarketOrderParams,
-        BuilderInfo, ClientCancelRequest, ClientLimit, ClientOrder, ClientOrderRequest,
+        actions::*, builder::BuilderInfo, cancel::{CancelRequest, CancelRequestCloid, ClientCancelRequest, ClientCancelRequestCloid}, modify::{ClientModifyRequest, ModifyRequest}, order::{ClientLimit, ClientOrder, ClientOrderRequest, MarketOrderParams, SetTpSlParams}
     },
     helpers::{next_nonce, uuid_to_hex_string},
-    order::SetTpSlParams,
     prelude::*,
     signature::create_signature::encode_l1_action,
-    BulkCancelCloid, Error, SendAsset,
 };
-use crate::{ClassTransfer, SpotSend, VaultTransfer, Withdraw3};
 use serde_json::Value;
 
 use super::{dtos::MessageResponse, dtos::SpotTransferRequest};
@@ -388,10 +379,7 @@ impl HashGenerator {
 mod tests {
 
     use super::*;
-    use crate::{
-        exchange::order::{Limit, OrderRequest},
-        Order,
-    };
+    use crate::exchange::order::{Limit, Order, OrderRequest};
 
     #[test]
     fn test_limit_order_action_hashing() -> Result<()> {
