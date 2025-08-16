@@ -7,7 +7,8 @@ use crate::{
     exchange::{
         actions::{
             ApproveAgent, ApproveBuilderFee, BulkCancel, BulkModify, BulkOrder, EvmUserModify,
-            ScheduleCancel, SetReferrer, UpdateIsolatedMargin, UpdateLeverage, UsdSend,
+            PerpDeployRegisterAsset, PerpDeploySetOracle, ScheduleCancel, SetReferrer,
+            UpdateIsolatedMargin, UpdateLeverage, UsdSend,
         },
         cancel::{CancelRequest, CancelRequestCloid, ClientCancelRequestCloid},
         modify::{ClientModifyRequest, ModifyRequest},
@@ -57,6 +58,8 @@ pub enum Actions {
     UsdClassTransfer(ClassTransfer),
     EvmUserModify(EvmUserModify),
     ScheduleCancel(ScheduleCancel),
+    PerpDeploy(PerpDeployRegisterAsset),
+    PerpDeploySetOracle(PerpDeploySetOracle),
 }
 
 impl Actions {
@@ -337,6 +340,54 @@ impl HashGenerator {
             builder,
         };
         let action = Actions::Order(bulk_order.clone());
+
+        Self::get_message_for_action(action, None)
+    }
+
+    pub async fn perp_deploy_register_asset(
+        dex: String,
+        max_gas: Option<u64>,
+        coin: String,
+        sz_decimals: u32,
+        oracle_px: String,
+        margin_table_id: u32,
+        only_isolated: bool,
+        schema: Option<crate::exchange::actions::PerpDexSchemaInput>,
+    ) -> Result<MessageResponse> {
+        use crate::exchange::actions::{AssetRequest, RegisterAsset};
+
+        let action = Actions::PerpDeploy(PerpDeployRegisterAsset {
+            register_asset: RegisterAsset {
+                max_gas,
+                asset_request: AssetRequest {
+                    coin,
+                    sz_decimals,
+                    oracle_px,
+                    margin_table_id,
+                    only_isolated,
+                },
+                dex,
+                schema,
+            },
+        });
+
+        Self::get_message_for_action(action, None)
+    }
+
+    pub async fn perp_deploy_set_oracle(
+        dex: String,
+        oracle_pxs: Vec<(String, String)>,
+        mark_pxs: Vec<Vec<(String, String)>>,
+    ) -> Result<MessageResponse> {
+        use crate::exchange::actions::SetOracle;
+
+        let action = Actions::PerpDeploySetOracle(PerpDeploySetOracle {
+            set_oracle: SetOracle {
+                dex,
+                oracle_pxs,
+                mark_pxs,
+            },
+        });
 
         Self::get_message_for_action(action, None)
     }

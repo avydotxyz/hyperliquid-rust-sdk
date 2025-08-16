@@ -291,6 +291,56 @@ pub struct ScheduleCancel {
     pub time: Option<u64>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PerpDexSchemaInput {
+    pub full_name: String,
+    pub collateral_token: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub oracle_updater: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetRequest {
+    pub coin: String,
+    pub sz_decimals: u32,
+    pub oracle_px: String,
+    pub margin_table_id: u32,
+    pub only_isolated: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RegisterAsset {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_gas: Option<u64>,
+    pub asset_request: AssetRequest,
+    pub dex: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schema: Option<PerpDexSchemaInput>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PerpDeployRegisterAsset {
+    pub register_asset: RegisterAsset,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SetOracle {
+    pub dex: String,
+    pub oracle_pxs: Vec<(String, String)>,
+    pub mark_pxs: Vec<Vec<(String, String)>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PerpDeploySetOracle {
+    pub set_oracle: SetOracle,
+}
+
 impl Eip712 for ApproveBuilderFee {
     fn domain(&self) -> Eip712Domain {
         eip_712_domain(self.signature_chain_id)

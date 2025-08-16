@@ -6,6 +6,7 @@ mod exchange;
 mod helpers;
 mod info;
 mod prelude;
+mod req;
 pub mod signature;
 pub mod ws;
 pub use consts::{EPSILON, LOCAL_API_URL, MAINNET_API_URL, TESTNET_API_URL};
