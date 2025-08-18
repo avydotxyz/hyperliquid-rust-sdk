@@ -136,9 +136,7 @@ impl ExchangeClient {
             mark_pxs: mark_pxs_wire,
         };
 
-        let perp_deploy = PerpDeploy {
-            action: PerpDeployAction::SetOracle(set_oracle),
-        };
+        let perp_deploy = PerpDeploy { set_oracle };
 
         let action = Actions::PerpDeploy(perp_deploy);
         let connection_id = action.hash(timestamp, self.vault_address)?;

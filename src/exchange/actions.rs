@@ -83,8 +83,7 @@ pub struct SetOracle {
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PerpDeploy {
-    #[serde(flatten)]
-    pub action: PerpDeployAction,
+    pub set_oracle: SetOracle,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
