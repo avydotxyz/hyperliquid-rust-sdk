@@ -1,4 +1,4 @@
-mod info_client;
+pub mod info_client;
 mod sub_structs;
 mod response_structs;
 

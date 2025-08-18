@@ -6,7 +6,13 @@ use crate::{
     eip712::Eip712,
     errors::Error,
     exchange::{
-        actions::*, builder::BuilderInfo, cancel::{CancelRequest, CancelRequestCloid, ClientCancelRequest, ClientCancelRequestCloid}, modify::{ClientModifyRequest, ModifyRequest}, order::{ClientLimit, ClientOrder, ClientOrderRequest, MarketOrderParams, SetTpSlParams}
+        actions::*,
+        builder::BuilderInfo,
+        cancel::{
+            CancelRequest, CancelRequestCloid, ClientCancelRequest, ClientCancelRequestCloid,
+        },
+        modify::{ClientModifyRequest, ModifyRequest},
+        order::{ClientLimit, ClientOrder, ClientOrderRequest, MarketOrderParams, SetTpSlParams},
     },
     helpers::{next_nonce, uuid_to_hex_string},
     prelude::*,
@@ -49,10 +55,11 @@ pub enum Actions {
     UsdClassTransfer(ClassTransfer),
     EvmUserModify(EvmUserModify),
     ScheduleCancel(ScheduleCancel),
+    PerpDeploy(PerpDeploy),
 }
 
 impl Actions {
-    fn hash(&self, timestamp: u64, vault_address: Option<Address>) -> Result<B256> {
+    pub fn hash(&self, timestamp: u64, vault_address: Option<Address>) -> Result<B256> {
         let mut bytes =
             rmp_serde::to_vec_named(self).map_err(|e| Error::RmpParse(e.to_string()))?;
         bytes.extend(timestamp.to_be_bytes());

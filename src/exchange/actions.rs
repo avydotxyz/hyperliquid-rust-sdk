@@ -74,6 +74,28 @@ pub struct UpdateIsolatedMargin {
 
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
 #[serde(rename_all = "camelCase")]
+pub struct SetOracle {
+    pub dex: String,
+    pub oracle_pxs: Vec<(String, String)>,
+    pub mark_pxs: Vec<Vec<(String, String)>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PerpDeploy {
+    #[serde(flatten)]
+    pub action: PerpDeployAction,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
+#[serde(rename_all = "camelCase")]
+#[serde(tag = "type")]
+pub enum PerpDeployAction {
+    SetOracle(SetOracle),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct BulkOrder {
     pub orders: Vec<OrderRequest>,
     pub grouping: String,
