@@ -113,9 +113,8 @@ impl ExchangeClient {
         dex: String,
         oracle_pxs: HashMap<String, String>,
         mark_pxs: Vec<HashMap<String, String>>,
-        wallet: Option<&PrivateKeySigner>,
     ) -> Result<ExchangeResponseStatus> {
-        let wallet = wallet.unwrap_or(&self.wallet);
+        let wallet = &self.wallet;
         let timestamp = next_nonce();
 
         // Convert HashMap to sorted Vec<(String, String)> as expected by the API
