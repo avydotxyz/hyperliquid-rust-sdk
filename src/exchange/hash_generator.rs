@@ -75,7 +75,7 @@ impl Actions {
 
 pub struct HashGenerator {}
 impl HashGenerator {
-    pub async fn usd_send(destination: String, amount: String) -> Result<Value> {
+    pub async fn usd_send(destination: String, amount: String) -> Result<MessageResponse> {
         let timestamp = next_nonce();
         let usd_send = UsdSend {
             signature_chain_id: 421614,
@@ -85,10 +85,13 @@ impl HashGenerator {
             time: timestamp,
         };
 
-        let action = serde_json::to_value(Actions::UsdSend(usd_send))
-            .map_err(|e| Error::JsonParse(e.to_string()))?;
+        let message = usd_send.eip712_signing_hash();
 
-        Ok(action)
+        Ok(MessageResponse {
+            action: Actions::UsdSend(usd_send),
+            message,
+            nonce: timestamp,
+        })
     }
 
     pub async fn approve_builder_fee(
